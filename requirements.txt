@@ -1,7 +1,7 @@
 pyTelegramBotAPI
-python-dotenv
-Pillow
-ffmpeg-python
-pymongo
-zipfile36
 flask
+pillow
+qrcode
+pymongo
+python-dotenv
+ffmpeg-python
