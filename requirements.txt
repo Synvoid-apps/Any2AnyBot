@@ -3,4 +3,5 @@ python-dotenv
 Pillow
 ffmpeg-python
 pymongo
-
+zipfile36
+flask
