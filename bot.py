@@ -6,7 +6,7 @@ from flask import Flask, request
 from PIL import Image
 import ffmpeg
 import zipfile
-from db import update_usage, usage_allowed, get_user
+from db import update_usage, usage_allowed, get_user, save_file, list_files
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -17,11 +17,10 @@ bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
 app = Flask(__name__)
 
 user_files = {}
-batch_list = {}
 video_mode = {}
-quality = {}
 
-# ---- MAIN HOME INLINE MENU ---- #
+
+# ---- HOME INLINE MENU ----
 def home_menu():
     kb = InlineKeyboardMarkup()
     kb.add(
@@ -32,49 +31,48 @@ def home_menu():
         InlineKeyboardButton("📊 Usage", callback_data="show_usage"),
         InlineKeyboardButton("💎 Upgrade VIP", callback_data="vip_info")
     )
-    kb.add(
-        InlineKeyboardButton("ℹ Help", callback_data="help_menu")
-    )
+    kb.add(InlineKeyboardButton("ℹ Help", callback_data="help_menu"))
     return kb
+
 
 @bot.message_handler(commands=['start'])
 def start(msg):
     uid = msg.from_user.id
     get_user(uid)
     bot.reply_to(msg,
-        "👋 Welcome to Any2Any WebApp 🌍\n"
-        "🤖 Send any file OR choose from menu below👇",
+        "👋 Welcome to Any2Any Converter WebApp 🌍\n"
+        "📁 Send any file OR choose from menu below 👇",
         reply_markup=home_menu()
     )
 
+
+# --- MENU BUTTON ACTIONS ---
 @bot.callback_query_handler(func=lambda c: c.data == "convert_menu")
 def convert_menu(call):
-    bot.send_message(call.message.chat.id, "📥 Send a file to start converting!")
+    bot.send_message(call.message.chat.id, "📥 Send a file to convert!")
+
 
 @bot.callback_query_handler(func=lambda c: c.data == "help_menu")
 def help_menu(call):
     bot.send_message(call.message.chat.id,
-        "🛠 Supported Formats:\n"
-        "• Images (PNG/JPG/WebP)\n"
-        "• Video → MP3\n"
-        "• Batch ZIP soon!\n"
-        "Just send file 🙂"
+        "🛠 Supported:\n"
+        "• Images → PNG/JPG\n"
+        "• Video → MP3/MP4\n"
+        "• Cloud File History\n"
+        "Just send a file 😄"
     )
 
-@bot.callback_query_handler(func=lambda c: c.data == "my_files")
-def my_files(call):
-    bot.send_message(call.message.chat.id, 
-        "📦 Cloud Storage coming in Phase-6.2 ⚡")
 
 @bot.callback_query_handler(func=lambda c: c.data == "vip_info")
 def vip_info(call):
     bot.send_message(call.message.chat.id,
         "💎 VIP Coming Soon:\n"
         "✔ Unlimited Conversions\n"
-        "✔ Extra Formats\n"
-        "✔ Fastest Processing\n"
-        "Stay tuned 🔥"
+        "✔ Faster Processing\n"
+        "✔ Advanced Formats\n"
+        "Stay tuned 😎🔥"
     )
+
 
 @bot.callback_query_handler(func=lambda c:c.data=="show_usage")
 def show_usage(call):
@@ -84,13 +82,39 @@ def show_usage(call):
         f"VIP: {'Yes 💎' if user['is_vip'] else 'No ❌'}"
     )
 
-# ===== IMAGE HANDLING ===== #
+
+# ===== CLOUD FILES MENU =====
+@bot.callback_query_handler(func=lambda c: c.data == "my_files")
+def my_files(call):
+    uid = call.message.chat.id
+    user_list = list_files(uid)
+
+    if not user_list:
+        return bot.send_message(uid, "📦 No files saved yet. Convert something first! 😊")
+
+    kb = InlineKeyboardMarkup()
+    txt = "📂 Your Recent Files:\n\n"
+
+    for i, f in enumerate(user_list):
+        name = f.get("name", f"File_{i+1}")
+        kb.add(InlineKeyboardButton(name, callback_data=f"dl_{f['file_id']}"))
+
+    bot.send_message(uid, txt, reply_markup=kb)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("dl_"))
+def dl_file(call):
+    file_id = call.data[3:]
+    bot.send_document(call.message.chat.id, file_id, caption="📥 Downloaded from Cloud!")
+
+
+# ===== IMAGE HANDLING =====
 @bot.message_handler(content_types=['photo'])
 def handle_photo(msg):
     uid = msg.from_user.id
 
     if not usage_allowed(uid):
-        return bot.reply_to(msg, "❌ Limit reached! VIP coming soon 💎")
+        return bot.reply_to(msg, "❌ Daily limit over! Upgrade VIP soon 💎")
 
     file_id = msg.photo[-1].file_id
     user_files[uid] = file_id
@@ -102,28 +126,30 @@ def handle_photo(msg):
     )
     bot.reply_to(msg, "🎯 Select output format:", reply_markup=kb)
 
+
 @bot.callback_query_handler(func=lambda c:c.data.startswith("img_"))
 def convert_img(call):
     uid = call.message.chat.id
     fmt = call.data[4:]
-
-    bot.send_message(uid, "⏳ Processing image…")
+    bot.send_message(uid, "⏳ Processing…")
 
     f = bot.get_file(user_files[uid])
     data = bot.download_file(f.file_path)
 
-    inp = f"in_{uid}.jpg"
-    out = f"out_{uid}.{fmt}"
+    inp = f"img_{uid}.jpg"
+    out = f"output_{uid}.{fmt}"
 
     open(inp, "wb").write(data)
-    img = Image.open(inp).convert("RGB")
-    img.save(out, quality=85, optimize=True)
+    Image.open(inp).convert("RGB").save(out, quality=85, optimize=True)
 
-    bot.send_document(uid, open(out, "rb"), reply_markup=home_menu())
+    sent = bot.send_document(uid, open(out, "rb"), reply_markup=home_menu())
+    save_file(uid, sent.document.file_id, out)
     update_usage(uid)
+
     os.remove(inp); os.remove(out)
 
-# ===== VIDEO HANDLING ===== #
+
+# ===== VIDEO HANDLING =====
 @bot.message_handler(content_types=['video'])
 def handle_video(msg):
     uid = msg.from_user.id
@@ -134,33 +160,35 @@ def handle_video(msg):
         InlineKeyboardButton("🎧 MP3", callback_data="v_mp3"),
         InlineKeyboardButton("🎥 MP4", callback_data="v_mp4")
     )
-    bot.reply_to(msg, "🎬 Select output format:", reply_markup=kb)
+    bot.reply_to(msg, "🎬 Select output:", reply_markup=kb)
+
 
 @bot.callback_query_handler(func=lambda c:c.data.startswith("v_"))
 def convert_video(call):
     uid = call.message.chat.id
     mode = call.data[2:]
-
-    bot.send_message(uid, "🎞 Converting…")
+    bot.send_message(uid, "🎞 Working…")
 
     f = bot.get_file(user_files[uid])
     data = bot.download_file(f.file_path)
 
-    inp = f"in_{uid}.mp4"
+    inp = f"vid_{uid}.mp4"
     out = f"out_{uid}.{'mp3' if mode=='mp3' else 'mp4'}"
-
     open(inp,"wb").write(data)
+
     if mode == "mp3":
         ffmpeg.input(inp).output(out, acodec="mp3").run(overwrite_output=True)
     else:
         ffmpeg.input(inp).output(out).run(overwrite_output=True)
 
-    bot.send_document(uid, open(out, "rb"), reply_markup=home_menu())
+    sent = bot.send_document(uid, open(out, "rb"), reply_markup=home_menu())
+    save_file(uid, sent.document.file_id, out)
     update_usage(uid)
+
     os.remove(inp); os.remove(out)
 
 
-# ===== WEBHOOK SERVER ===== #
+# ===== WEBHOOK SERVER =====
 bot.remove_webhook()
 bot.set_webhook(url=FULL_URL)
 
@@ -173,6 +201,7 @@ def webhook():
 @app.route("/", methods=["GET"])
 def home():
     return "Bot Running! 🚀", 200
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
