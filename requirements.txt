@@ -1,7 +1,5 @@
-pyTelegramBotAPI
+pytelegrambotapi
 flask
-pillow
-qrcode
 pymongo
-python-dotenv
-ffmpeg-python
+qrcode
+dnspython
