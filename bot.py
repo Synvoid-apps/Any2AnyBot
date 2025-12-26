@@ -27,10 +27,10 @@ if not os.path.exists(QR_FOLDER):
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-# ───────── BASIC COMMANDS ─────────
+# ───────── COMMANDS ─────────
 @bot.message_handler(commands=['id'])
 def send_user_id(msg):
-    bot.send_message(msg.chat.id, f"🆔 Your Telegram ID:\n<code>{msg.from_user.id}</code>")
+    bot.send_message(msg.chat.id, f"🆔 Your ID:\n<code>{msg.from_user.id}</code>")
 
 @bot.message_handler(commands=['stats'])
 def stats(msg):
@@ -38,14 +38,10 @@ def stats(msg):
         return
     total = users_collection.count_documents({})
     vip = users_collection.count_documents({"vip": True})
-
     bot.send_message(ADMIN_ID,
-                     f"📊 <b>Admin Panel</b>\n\n"
-                     f"👥 Users: {total}\n"
-                     f"💎 VIP: {vip}\n"
-                     f"Managed by AskEdge Labs™️")
+                     f"📊 Admin Panel\n👥 Users: {total}\n💎 VIP: {vip}")
 
-# ───────── USER SYSTEM ─────────
+# ───────── USER REGISTER ─────────
 def get_user(uid):
     u = users_collection.find_one({"user_id": uid})
     if not u:
@@ -65,13 +61,11 @@ def update_usage(uid):
 def start(msg):
     get_user(msg.from_user.id)
 
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb = types.ReplyKeyboardMarkup(True)
     kb.add("Convert Image", "💎 VIP Plans")
 
     bot.send_message(msg.chat.id,
-                     "🔥 <b>Any2Any Converter</b>\n"
-                     "Convert Anything ➝ Anything\n\n"
-                     "Managed by <b>AskEdge Labs™️</b>",
+                     "<b>🔥 Any2Any Converter</b>\nConvert Anything → Anything\n\nManaged by <b>AskEdge Labs™️</b>",
                      reply_markup=kb)
 
 # ───────── VIP PLANS ─────────
@@ -82,7 +76,7 @@ def vip_options(msg):
         types.InlineKeyboardButton("₹30 / 30 Days", callback_data="plan_30"),
         types.InlineKeyboardButton("₹59 / Lifetime", callback_data="plan_59")
     )
-    bot.send_message(msg.chat.id, "🔥 Choose your VIP Plan", reply_markup=kb)
+    bot.send_message(msg.chat.id, "🔥 Choose VIP Plan", reply_markup=kb)
 
 def generate_qr(amount, uid):
     upi_url = f"upi://pay?pa={UPI_ID}&pn=AskEdgeLabs&am={amount}&cu=INR&tn=VIP{uid}"
@@ -94,15 +88,14 @@ def generate_qr(amount, uid):
 def vip_payment(c):
     amount = 30 if c.data == "plan_30" else 59
     uid = c.from_user.id
-
     qr = generate_qr(amount, uid)
+
     bot.send_photo(uid, open(qr, 'rb'),
-                   caption=f"Scan & Pay UPI\n\n₹{amount} → {UPI_ID}\n\n"
-                           "After Payment → Send Screenshot for Activation 🔥")
+                   caption=f"Scan & Pay\n₹{amount} to UPI: {UPI_ID}\n\nAfter Payment → Send Screenshot")
 
     bot.send_message(ADMIN_ID,
                      f"⚠ Payment Request\nUser: {uid}\nPlan: ₹{amount}\n\n"
-                     f"Approve:\n/approve_{uid}_{amount}")
+                     f"Activate:\n/approve_{uid}_{amount}")
 
 @bot.message_handler(commands=["approve"])
 def approve(msg):
@@ -111,29 +104,21 @@ def approve(msg):
     _, uid, amt = msg.text.split("_")
     uid = int(uid)
     users_collection.update_one({"user_id": uid}, {"$set": {"vip": True}})
-    bot.send_message(uid, "🎉 VIP Activated Successfully!")
+    bot.send_message(uid, "🎉 VIP Activated!")
     bot.send_message(ADMIN_ID, f"✔ VIP Activated for {uid}")
 
-# ───────── IMAGE COMPRESSION FEATURE ─────────
+# ───────── IMAGE FEATURE PLACEHOLDER ─────────
 @bot.message_handler(func=lambda m: m.text == "Convert Image")
 def ask_img(msg):
     bot.send_message(msg.chat.id,
-                     "📤 Send any image to convert or reduce MB ➝ KB")
+                     "📤 Send any image to convert or compress...\n"
+                     "(New menu coming!)")
 
 @bot.message_handler(content_types=['photo'])
-def image_received(msg):
-    uid = msg.from_user.id
-    get_user(uid)
-    bot.send_message(uid,
-                     "👌 Image received!\nNow enter target size e.g.:\n\n"
-                     "<code>100KB</code> or <code>1MB</code>")
+def img_received(msg):
+    bot.send_message(msg.chat.id, "👌 Image received! (Next update: size, quality menu)")
 
-    bot.register_next_step_handler(msg, compress_step)
-
-def compress_step(msg):
-    bot.send_message(msg.chat.id, "⚡ Compression coming in next update!")
-
-# ───────── WEBHOOK SERVER ─────────
+# ───────── WEBHOOK SERVER (MAIN FIX) ─────────
 app = Flask(__name__)
 
 @app.route(f"/{TOKEN}", methods=["POST"])
@@ -142,12 +127,17 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    print("Refreshing Webhook...")
+    print("🔄 Refreshing Webhook...")
+
     bot.remove_webhook()
-    time.sleep(1)
-    bot.set_webhook(
+    time.sleep(2)
+
+    success = bot.set_webhook(
         url=f"{BASE_URL}/{TOKEN}",
         allowed_updates=["message", "callback_query"]
     )
-    print("Webhook Set:", f"{BASE_URL}/{TOKEN}")
+
+    print("Webhook Set:", success)
+    print("Bot Running...", f"{BASE_URL}/{TOKEN}")
+
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
