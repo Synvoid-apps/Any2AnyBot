@@ -42,9 +42,7 @@ def admin_panel(chat_id):
         types.InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
         types.InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast")
     )
-    kb.add(
-        types.InlineKeyboardButton("❓ Help", callback_data="admin_help")
-    )
+    kb.add(types.InlineKeyboardButton("❓ Help", callback_data="admin_help"))
 
     bot.send_message(
         chat_id,
@@ -68,31 +66,64 @@ def admin_help(msg):
     
     help_text = (
         "👑 <b>Admin Command Guide</b>\n\n"
-        "📌 <b>VIP & Payment Controls</b>\n"
-        "/addlink 30 <URL>\n/addlink 59 <URL>\n"
+        "📌 Payment Controls:\n"
+        "/addlink 30 <URL>\n"
+        "/addlink 59 <URL>\n"
         "/links\n"
         "/paid_id_userid\n"
         "/unpaid_id\n\n"
-        
-        "👥 <b>User Management</b>\n"
-        "/users\n"
-        
-        "📊 <b>Stats & System</b>\n"
-        "/stats\n"
-        
-        "📢 <b>Broadcast</b>\n"
+        "👥 User Management:\n"
+        "/users\n\n"
+        "📊 Stats:\n"
+        "/stats\n\n"
+        "📢 Broadcast:\n"
         "/broadcast\n\n"
-        
-        "⚙ <b>Admin Panel UI</b>\n"
+        "⚙ Admin Panel:\n"
         "/admin\n"
     )
     
     bot.send_message(msg.chat.id, help_text)
 
-@bot.callback_query_handler(func=lambda c: c.data == "admin_help")
-def cl_help(c):
-    if c.from_user.id != ADMIN_ID: return
-    admin_help(c.message)
+# UNIVERSAL CALLBACK FIX🔥
+@bot.callback_query_handler(func=lambda c: True)
+def admin_buttons_handler(c):
+    if c.from_user.id != ADMIN_ID:
+        return
+
+    data = c.data
+
+    if data == "admin_links":
+        bot.send_message(c.message.chat.id,
+                         "🔗 Link Commands:\n"
+                         "/addlink 30 <URL>\n"
+                         "/addlink 59 <URL>\n"
+                         "/links\n"
+                         "/paid_id_userid\n"
+                         "/unpaid_id")
+
+    elif data == "admin_users":
+        users = users_collection.find()
+        text = "👥 Users:\n\n"
+        for u in users:
+            text += f"{u['user_id']} - {'VIP' if u.get('vip') else 'FREE'}\n"
+        bot.send_message(c.message.chat.id, text)
+
+    elif data == "admin_stats":
+        total = users_collection.count_documents({})
+        vip = users_collection.count_documents({"vip": True})
+        bot.send_message(
+            c.message.chat.id,
+            f"📊 Stats:\nUsers: {total}\nVIP: {vip}"
+        )
+
+    elif data == "admin_broadcast":
+        ask = bot.send_message(c.message.chat.id, "📢 Broadcast message:")
+        bot.register_next_step_handler(ask, do_broadcast)
+
+    elif data == "admin_help":
+        admin_help(c.message)
+
+    bot.answer_callback_query(c.id)
 
 # -------------- BASIC USER COMMANDS --------------
 @bot.message_handler(commands=['id'])
@@ -106,9 +137,7 @@ def stats(msg):
     vip = users_collection.count_documents({"vip": True})
     bot.send_message(
         ADMIN_ID,
-        f"📊 Stats:\n"
-        f"👥 Users: {total}\n"
-        f"💎 VIP Users: {vip}"
+        f"📊 Stats:\nUsers: {total}\nVIP: {vip}"
     )
 
 # -------------- USER MAIN MENU --------------
@@ -129,7 +158,7 @@ def start(msg):
         reply_markup=kb
     )
 
-# -------------- VIP PLANS & PAYMENT LINKS --------------
+# -------------- VIP PAYMENT LINK ASSIGN --------------
 @bot.message_handler(func=lambda m: m.text == "💎 VIP Plans")
 def vip(msg):
     kb = types.InlineKeyboardMarkup()
@@ -157,7 +186,7 @@ def pick_plan(c):
 
     if not link:
         bot.send_message(uid, "❌ All payment links used. Admin adding new links!")
-        bot.send_message(ADMIN_ID, "⚠ Add more payment links")
+        bot.send_message(ADMIN_ID, "⚠ Add more payment links urgently")
         return
 
     assign_link(link["id"], uid)
@@ -170,7 +199,7 @@ def pick_plan(c):
 
     bot.send_message(
         ADMIN_ID,
-        f"🆕 Payment Request\nUser: {uid}\nLinkID: {link['id']}\n💴 ₹{amount}\n\n"
+        f"🆕 VIP Request\nUser: {uid}\nLinkID: {link['id']}\n₹{amount}\n\n"
         f"/paid_{link['id']}_{uid}\n"
         f"/unpaid_{link['id']}"
     )
@@ -179,11 +208,9 @@ def pick_plan(c):
 @bot.message_handler(commands=['addlink'])
 def add_link(msg):
     if msg.from_user.id != ADMIN_ID: return
-
     try:
         _, amount, url = msg.text.split(" ", 2)
         amount = int(amount)
-
         new_id = payment_links.count_documents({}) + 1
         payment_links.insert_one({
             "id": new_id,
@@ -191,17 +218,15 @@ def add_link(msg):
             "url": url,
             "status": "available"
         })
-
-        bot.send_message(ADMIN_ID, f"✔ Link Added!\nID: {new_id}")
+        bot.send_message(ADMIN_ID, f"✔ Link Added: ID {new_id}")
     except:
         bot.send_message(ADMIN_ID, "❌ Format:\n/addlink 30 <URL>")
 
 @bot.message_handler(commands=['links'])
 def links(msg):
     if msg.from_user.id != ADMIN_ID: return
-
     data = payment_links.find()
-    txt = "🔗 Payment Links:\n\n"
+    txt = "🔗 Links:\n\n"
     for l in data:
         txt += f"ID: {l['id']} | ₹{l['amount']} | Status: {l['status']}\n"
     bot.send_message(ADMIN_ID, txt or "No Links")
@@ -209,10 +234,9 @@ def links(msg):
 @bot.message_handler(commands=['users'])
 def users(msg):
     if msg.from_user.id != ADMIN_ID: return
-
-    users = users_collection.find()
-    txt = "👥 Users:\n"
-    for u in users:
+    data = users_collection.find()
+    txt = "👥 Users:\n\n"
+    for u in data:
         txt += f"{u['user_id']} - {'VIP' if u.get('vip') else 'FREE'}\n"
     bot.send_message(ADMIN_ID, txt)
 
@@ -220,59 +244,35 @@ def users(msg):
 def paid(msg):
     if msg.from_user.id != ADMIN_ID: return
     _, lid, uid = msg.text.split("_")
-    uid = int(uid)
-    lid = int(lid)
-
+    lid = int(lid); uid = int(uid)
     users_collection.update_one({"user_id": uid}, {"$set": {"vip": True}})
-    payment_links.update_one({"id": lid},
-                             {"$set": {"status": "paid"}})
-
+    payment_links.update_one({"id": lid}, {"$set": {"status": "paid"}})
     bot.send_message(uid, "🎉 VIP Activated!")
-    bot.send_message(ADMIN_ID, "✔ Marked Paid")
+    bot.send_message(ADMIN_ID, "✔ Payment Confirmed")
 
 @bot.message_handler(commands=['unpaid'])
 def unpaid(msg):
     if msg.from_user.id != ADMIN_ID: return
-
     _, lid = msg.text.split("_")
     lid = int(lid)
-
     payment_links.update_one({"id": lid},
-                             {"$set": {"status": "available"}})
-    bot.send_message(ADMIN_ID, "🔁 Link Re-Activated")
+                             {"$set": {"status": "available", "assigned_to": None}})
+    bot.send_message(ADMIN_ID, "🔁 Link Reset")
 
-# -------------- ADMIN BUTTON CALLBACK --------------
-@bot.callback_query_handler(func=lambda c: c.data == "admin_links")
-def cl_links(c):
-    if c.from_user.id != ADMIN_ID: return
-    bot.send_message(c.message.chat.id, "/addlink 30 <URL>\n/addlink 59 <URL>\n/links")
-
-@bot.callback_query_handler(func=lambda c: c.data == "admin_users")
-def cl_users(c):
-    users(c.message)
-
-@bot.callback_query_handler(func=lambda c: c.data == "admin_stats")
-def cl_stats(c):
-    stats(c.message)
-
-@bot.callback_query_handler(func=lambda c: c.data == "admin_broadcast")
-def cl_broadcast(c):
-    if c.from_user.id != ADMIN_ID: return
-    r = bot.send_message(c.message.chat.id, "Send broadcast message:")
-    bot.register_next_step_handler(r, do_broadcast)
-
+# -------------- BROADCAST --------------
 def do_broadcast(msg):
     if msg.from_user.id != ADMIN_ID: return
     for u in users_collection.find():
-        try: bot.send_message(u['user_id'], msg.text)
+        try:
+            bot.send_message(u['user_id'], msg.text)
         except: pass
     bot.send_message(ADMIN_ID, "Broadcast Sent ✔")
 
-# -------------- IMAGE MENU --------------
+# -------------- IMAGE PLACEHOLDER --------------
 @bot.message_handler(func=lambda m: m.text == "Convert Image")
-def img(msg):
+def convert_image(msg):
     bot.send_message(msg.chat.id,
-                     "📤 Send any image\n(Processing Engine Coming Soon)")
+                     "📤 Send any image\nTools coming soon 😎")
 
 # -------------- WEBHOOK SERVER --------------
 app = Flask(__name__)
@@ -287,5 +287,8 @@ def webhook():
 if __name__ == "__main__":
     bot.remove_webhook()
     time.sleep(2)
-    bot.set_webhook(url=f"{BASE_URL}/{TOKEN}")
+    bot.set_webhook(
+        url=f"{BASE_URL}/{TOKEN}",
+        allowed_updates=["message", "callback_query"]
+    )
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
